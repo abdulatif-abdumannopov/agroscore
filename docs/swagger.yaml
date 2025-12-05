@@ -1,0 +1,200 @@
+basePath: /
+definitions:
+  main.Credit:
+    properties:
+      amount:
+        type: integer
+      balance:
+        type: integer
+      cid:
+        type: integer
+      description:
+        type: string
+      duration:
+        type: integer
+      fid:
+        type: integer
+      status:
+        type: string
+      uid:
+        type: integer
+    type: object
+  main.ErrorResponse:
+    properties:
+      error:
+        example: Invalid credentials
+        type: string
+    type: object
+  main.Farm:
+    properties:
+      cost:
+        type: integer
+      fid:
+        type: integer
+      income:
+        type: integer
+      name:
+        type: string
+      quality:
+        type: string
+      square:
+        type: integer
+      uid:
+        type: integer
+    type: object
+  main.LoginRequest:
+    properties:
+      login:
+        type: string
+      password:
+        type: string
+    required:
+    - login
+    - password
+    type: object
+  main.User:
+    properties:
+      id:
+        type: integer
+      lastname:
+        type: string
+      name:
+        type: string
+      passport_code:
+        type: string
+      passport_number:
+        type: string
+      pinfl:
+        type: string
+      surname:
+        type: string
+    type: object
+host: localhost:8080
+info:
+  contact: {}
+  description: Мини-сервер для обработки заявок на кредиты для фермеров с авторизацией
+    через JWT и проверкой прав.
+  title: Farmers Credit API
+  version: "1.0"
+paths:
+  /api/credits:
+    get:
+      description: Returns a list of credit applications. If user_id is not provided,
+        returns the current user's applications.
+      parameters:
+      - description: Target User ID (for Admin use)
+        in: query
+        name: user_id
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/main.Credit'
+            type: array
+        "403":
+          description: Access Denied
+          schema:
+            $ref: '#/definitions/main.ErrorResponse'
+      security:
+      - ApiKeyAuth: []
+      summary: Get credit applications
+      tags:
+      - Credit
+  /api/farms:
+    get:
+      description: Returns a list of farms. If user_id is not provided, returns the
+        current user's farms.
+      parameters:
+      - description: Target User ID (for Admin use)
+        in: query
+        name: user_id
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/main.Farm'
+            type: array
+        "403":
+          description: Access Denied
+          schema:
+            $ref: '#/definitions/main.ErrorResponse'
+      security:
+      - ApiKeyAuth: []
+      summary: Get farm data
+      tags:
+      - Farms
+  /api/users:
+    get:
+      description: Retrieves user profile data. Admins can view other users' profiles
+        using the user_id query parameter.
+      parameters:
+      - description: Target User ID (Admin access required for others)
+        in: query
+        name: user_id
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/main.User'
+        "400":
+          description: Invalid ID format
+          schema:
+            $ref: '#/definitions/main.ErrorResponse'
+        "403":
+          description: Access Denied
+          schema:
+            $ref: '#/definitions/main.ErrorResponse'
+        "404":
+          description: User not found
+          schema:
+            $ref: '#/definitions/main.ErrorResponse'
+      security:
+      - ApiKeyAuth: []
+      summary: Get user profile
+      tags:
+      - Users
+  /login:
+    post:
+      consumes:
+      - application/json
+      description: Validates login and password, returns a JWT token.
+      parameters:
+      - description: Login credentials
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/main.LoginRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 'Returns token: {''token'': ''jwt_token_string''}'
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "401":
+          description: Invalid credentials
+          schema:
+            $ref: '#/definitions/main.ErrorResponse'
+      summary: Authenticate user
+      tags:
+      - Auth
+securityDefinitions:
+  ApiKeyAuth:
+    in: header
+    name: Authorization
+    type: apiKey
+swagger: "2.0"
