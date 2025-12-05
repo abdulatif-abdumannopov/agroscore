@@ -74,6 +74,29 @@ type UserClaims struct {
 	jwt.RegisteredClaims
 }
 
+// Структура для создания новой фермы (используется только Админом)
+type CreateFarmRequest struct {
+	UID     int    `json:"uid" binding:"required"` // Для какого пользователя создается ферма
+	Name    string `json:"name" binding:"required"`
+	Square  int    `json:"square" binding:"required"`
+	Quality string `json:"quality" binding:"required" example:"Good"`
+	Income  int    `json:"income" binding:"required"`
+	Cost    int    `json:"cost" binding:"required"`
+}
+
+// Структура для подачи заявки на кредит (используется Пользователем)
+type CreateCreditRequest struct {
+	FID         int    `json:"fid" binding:"required"` // К какой ферме привязан кредит
+	Amount      int    `json:"amount" binding:"required"`
+	Duration    int    `json:"duration" binding:"required"`
+	Description string `json:"description"`
+}
+
+// Структура для изменения статуса кредита (используется только Админом)
+type UpdateCreditStatusRequest struct {
+	Status string `json:"status" binding:"required" example:"approved"`
+}
+
 // Структура для документации ошибок в Swagger
 type ErrorResponse struct {
 	Error string `json:"error" example:"Invalid credentials"`
@@ -92,7 +115,7 @@ func checkPasswordHash(password, hash string) bool {
 }
 
 // --- Инициализация БД ---
-
+// (unchanged initDB function)
 func initDB() {
 	var err error
 	db, err = sql.Open("sqlite3", "./farm.db")
@@ -205,6 +228,7 @@ func initDB() {
 }
 
 // --- Middleware ---
+// (unchanged AuthMiddleware function)
 func AuthMiddleware() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		authHeader := c.GetHeader("Authorization")
@@ -253,6 +277,7 @@ func AuthMiddleware() gin.HandlerFunc {
 // @Failure 401 {object} ErrorResponse "Invalid credentials"
 // @Router /login [post]
 func loginHandler(c *gin.Context) {
+	// (loginHandler logic)
 	var req LoginRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request"})
@@ -317,6 +342,7 @@ func canAccessData(c *gin.Context, targetUserID int) bool {
 // @Failure 404 {object} ErrorResponse "User not found"
 // @Router /api/users [get]
 func getUserHandler(c *gin.Context) {
+	// (getUserHandler logic)
 	currentUserID := c.GetInt("userID")
 	isAdmin := c.GetBool("isAdmin")
 
@@ -357,6 +383,7 @@ func getUserHandler(c *gin.Context) {
 // @Failure 403 {object} ErrorResponse "Access Denied"
 // @Router /api/credits [get]
 func getCreditsHandler(c *gin.Context) {
+	// (getCreditsHandler logic)
 	currentUserID := c.GetInt("userID")
 	targetUserID := currentUserID
 
@@ -411,6 +438,7 @@ func getCreditsHandler(c *gin.Context) {
 // @Failure 403 {object} ErrorResponse "Access Denied"
 // @Router /api/farms [get]
 func getFarmsHandler(c *gin.Context) {
+	// (getFarmsHandler logic)
 	currentUserID := c.GetInt("userID")
 	targetUserID := currentUserID
 
@@ -450,6 +478,167 @@ func getFarmsHandler(c *gin.Context) {
 	c.JSON(http.StatusOK, farms)
 }
 
+// 5. Create Farm Handler (ИСПОЛЬЗУЕТСЯ АДМИНАМИ)
+// @Summary Create a new farm
+// @Description Creates a new farm and assigns it to the specified user (UID). Requires Admin privileges.
+// @Tags Farms
+// @Security ApiKeyAuth
+// @Accept json
+// @Produce json
+// @Param request body CreateFarmRequest true "Farm details and target User ID"
+// @Success 201 {object} Farm
+// @Failure 400 {object} ErrorResponse "Invalid request data"
+// @Failure 403 {object} ErrorResponse "Access Denied (Not an Admin)"
+// @Router /api/farms [post]
+func createFarmHandler(c *gin.Context) {
+	if !c.GetBool("isAdmin") {
+		c.JSON(http.StatusForbidden, gin.H{"error": "Access denied: Only administrators can create farms"})
+		return
+	}
+
+	var req CreateFarmRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request: " + err.Error()})
+		return
+	}
+
+	// Проверка существования пользователя
+	var userExists bool
+	err := db.QueryRow("SELECT EXISTS(SELECT 1 FROM USERS WHERE id = ?)", req.UID).Scan(&userExists)
+	if err != nil || !userExists {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Target user ID (UID) not found"})
+		return
+	}
+
+	res, err := db.Exec("INSERT INTO FARMS (uid, name, square, quality, income, cost) VALUES (?, ?, ?, ?, ?, ?)",
+		req.UID, req.Name, req.Square, req.Quality, req.Income, req.Cost)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Database error while creating farm"})
+		return
+	}
+
+	id, _ := res.LastInsertId()
+	c.JSON(http.StatusCreated, Farm{
+		FID:     int(id),
+		UID:     req.UID,
+		Name:    req.Name,
+		Square:  req.Square,
+		Quality: req.Quality,
+		Income:  req.Income,
+		Cost:    req.Cost,
+	})
+}
+
+// 6. Create Credit Handler (ИСПОЛЬЗУЕТСЯ ПОЛЬЗОВАТЕЛЯМИ)
+// @Summary Create a new credit application
+// @Description Allows a user to apply for a credit linked to one of their farms. Status is set to 'wait'.
+// @Tags Credit
+// @Security ApiKeyAuth
+// @Accept json
+// @Produce json
+// @Param request body CreateCreditRequest true "Credit application details"
+// @Success 201 {object} Credit
+// @Failure 400 {object} ErrorResponse "Invalid request data or farm not owned by user"
+// @Failure 403 {object} ErrorResponse "Access Denied"
+// @Router /api/credits [post]
+func createCreditHandler(c *gin.Context) {
+	currentUserID := c.GetInt("userID")
+
+	var req CreateCreditRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request: " + err.Error()})
+		return
+	}
+
+	// Проверка, принадлежит ли ферма пользователю
+	var farmOwnerID int
+	err := db.QueryRow("SELECT uid FROM FARMS WHERE fid = ?", req.FID).Scan(&farmOwnerID)
+	if err != nil || farmOwnerID != currentUserID {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Farm ID (FID) not found or does not belong to the current user"})
+		return
+	}
+
+	res, err := db.Exec("INSERT INTO CREDIT (uid, fid, amount, balance, duration, status, description) VALUES (?, ?, ?, ?, ?, 'wait', ?)",
+		currentUserID, req.FID, req.Amount, req.Amount, req.Duration, req.Description)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Database error while creating credit application"})
+		return
+	}
+
+	id, _ := res.LastInsertId()
+	c.JSON(http.StatusCreated, Credit{
+		CID:         int(id),
+		UID:         currentUserID,
+		FID:         req.FID,
+		Amount:      req.Amount,
+		Balance:     req.Amount,
+		Duration:    req.Duration,
+		Status:      "wait",
+		Description: req.Description,
+	})
+}
+
+// 7. Update Credit Status Handler (ИСПОЛЬЗУЕТСЯ АДМИНАМИ)
+// @Summary Update credit application status
+// @Description Allows an administrator to approve or deny a credit application. Requires Admin privileges.
+// @Tags Credit
+// @Security ApiKeyAuth
+// @Accept json
+// @Produce json
+// @Param cid path int true "Credit ID to update"
+// @Param request body UpdateCreditStatusRequest true "New status ('approved' or 'denied')"
+// @Success 200 {object} Credit
+// @Failure 400 {object} ErrorResponse "Invalid credit ID or status value"
+// @Failure 403 {object} ErrorResponse "Access Denied (Not an Admin)"
+// @Failure 404 {object} ErrorResponse "Credit not found"
+// @Router /api/credits/{cid} [patch]
+func updateCreditStatusHandler(c *gin.Context) {
+	// (updateCreditStatusHandler logic)
+	if !c.GetBool("isAdmin") {
+		c.JSON(http.StatusForbidden, gin.H{"error": "Access denied: Only administrators can update credit status"})
+		return
+	}
+
+	cidStr := c.Param("cid")
+	cid, err := strconv.Atoi(cidStr)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid credit ID format"})
+		return
+	}
+
+	var req UpdateCreditStatusRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request: " + err.Error()})
+		return
+	}
+
+	newStatus := strings.ToLower(req.Status)
+	if newStatus != "approved" && newStatus != "denied" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid status value. Must be 'approved' or 'denied'"})
+		return
+	}
+
+	// Обновление статуса
+	res, err := db.Exec("UPDATE CREDIT SET status = ? WHERE cid = ?", newStatus, cid)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Database error while updating status"})
+		return
+	}
+
+	rowsAffected, _ := res.RowsAffected()
+	if rowsAffected == 0 {
+		c.JSON(http.StatusNotFound, gin.H{"error": "Credit ID not found"})
+		return
+	}
+
+	// Возвращаем обновленный объект
+	var updatedCredit Credit
+	row := db.QueryRow("SELECT cid, uid, fid, amount, balance, duration, status, description FROM CREDIT WHERE cid = ?", cid)
+	row.Scan(&updatedCredit.CID, &updatedCredit.UID, &updatedCredit.FID, &updatedCredit.Amount, &updatedCredit.Balance, &updatedCredit.Duration, &updatedCredit.Status, &updatedCredit.Description)
+
+	c.JSON(http.StatusOK, updatedCredit)
+}
+
 func main() {
 	initDB()
 	defer db.Close()
@@ -462,8 +651,15 @@ func main() {
 	api.Use(AuthMiddleware())
 	{
 		api.GET("/users", getUserHandler)
-		api.GET("/credits", getCreditsHandler)
+
+		// Фермы
 		api.GET("/farms", getFarmsHandler)
+		api.POST("/farms", createFarmHandler) // Админ создает для любого пользователя
+
+		// Кредиты
+		api.GET("/credits", getCreditsHandler)
+		api.POST("/credits", createCreditHandler)             // Пользователь создает для себя
+		api.PATCH("/credits/:cid", updateCreditStatusHandler) // Админ меняет статус
 	}
 	docs.SwaggerInfo.BasePath = "/"
 	r.GET("/swagger/*any", ginSwagger.WrapHandler(files.Handler))

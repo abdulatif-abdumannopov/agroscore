@@ -49,6 +49,119 @@
                         }
                     }
                 }
+            },
+            "post": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "description": "Allows a user to apply for a credit linked to one of their farms. Status is set to 'wait'.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Credit"
+                ],
+                "summary": "Create a new credit application",
+                "parameters": [
+                    {
+                        "description": "Credit application details",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/main.CreateCreditRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "201": {
+                        "description": "Created",
+                        "schema": {
+                            "$ref": "#/definitions/main.Credit"
+                        }
+                    },
+                    "400": {
+                        "description": "Invalid request data or farm not owned by user",
+                        "schema": {
+                            "$ref": "#/definitions/main.ErrorResponse"
+                        }
+                    },
+                    "403": {
+                        "description": "Access Denied",
+                        "schema": {
+                            "$ref": "#/definitions/main.ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/credits/{cid}": {
+            "patch": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "description": "Allows an administrator to approve or deny a credit application. Requires Admin privileges.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Credit"
+                ],
+                "summary": "Update credit application status",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "Credit ID to update",
+                        "name": "cid",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "New status ('approved' or 'denied')",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/main.UpdateCreditStatusRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/main.Credit"
+                        }
+                    },
+                    "400": {
+                        "description": "Invalid credit ID or status value",
+                        "schema": {
+                            "$ref": "#/definitions/main.ErrorResponse"
+                        }
+                    },
+                    "403": {
+                        "description": "Access Denied (Not an Admin)",
+                        "schema": {
+                            "$ref": "#/definitions/main.ErrorResponse"
+                        }
+                    },
+                    "404": {
+                        "description": "Credit not found",
+                        "schema": {
+                            "$ref": "#/definitions/main.ErrorResponse"
+                        }
+                    }
+                }
             }
         },
         "/api/farms": {
@@ -86,6 +199,55 @@
                     },
                     "403": {
                         "description": "Access Denied",
+                        "schema": {
+                            "$ref": "#/definitions/main.ErrorResponse"
+                        }
+                    }
+                }
+            },
+            "post": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "description": "Creates a new farm and assigns it to the specified user (UID). Requires Admin privileges.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Farms"
+                ],
+                "summary": "Create a new farm",
+                "parameters": [
+                    {
+                        "description": "Farm details and target User ID",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/main.CreateFarmRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "201": {
+                        "description": "Created",
+                        "schema": {
+                            "$ref": "#/definitions/main.Farm"
+                        }
+                    },
+                    "400": {
+                        "description": "Invalid request data",
+                        "schema": {
+                            "$ref": "#/definitions/main.ErrorResponse"
+                        }
+                    },
+                    "403": {
+                        "description": "Access Denied (Not an Admin)",
                         "schema": {
                             "$ref": "#/definitions/main.ErrorResponse"
                         }
@@ -189,6 +351,62 @@
         }
     },
     "definitions": {
+        "main.CreateCreditRequest": {
+            "type": "object",
+            "required": [
+                "amount",
+                "duration",
+                "fid"
+            ],
+            "properties": {
+                "amount": {
+                    "type": "integer"
+                },
+                "description": {
+                    "type": "string"
+                },
+                "duration": {
+                    "type": "integer"
+                },
+                "fid": {
+                    "description": "К какой ферме привязан кредит",
+                    "type": "integer"
+                }
+            }
+        },
+        "main.CreateFarmRequest": {
+            "type": "object",
+            "required": [
+                "cost",
+                "income",
+                "name",
+                "quality",
+                "square",
+                "uid"
+            ],
+            "properties": {
+                "cost": {
+                    "type": "integer"
+                },
+                "income": {
+                    "type": "integer"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "quality": {
+                    "type": "string",
+                    "example": "Good"
+                },
+                "square": {
+                    "type": "integer"
+                },
+                "uid": {
+                    "description": "Для какого пользователя создается ферма",
+                    "type": "integer"
+                }
+            }
+        },
         "main.Credit": {
             "type": "object",
             "properties": {
@@ -265,6 +483,18 @@
                 },
                 "password": {
                     "type": "string"
+                }
+            }
+        },
+        "main.UpdateCreditStatusRequest": {
+            "type": "object",
+            "required": [
+                "status"
+            ],
+            "properties": {
+                "status": {
+                    "type": "string",
+                    "example": "approved"
                 }
             }
         },

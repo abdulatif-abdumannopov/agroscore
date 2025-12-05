@@ -1,5 +1,45 @@
 basePath: /
 definitions:
+  main.CreateCreditRequest:
+    properties:
+      amount:
+        type: integer
+      description:
+        type: string
+      duration:
+        type: integer
+      fid:
+        description: К какой ферме привязан кредит
+        type: integer
+    required:
+    - amount
+    - duration
+    - fid
+    type: object
+  main.CreateFarmRequest:
+    properties:
+      cost:
+        type: integer
+      income:
+        type: integer
+      name:
+        type: string
+      quality:
+        example: Good
+        type: string
+      square:
+        type: integer
+      uid:
+        description: Для какого пользователя создается ферма
+        type: integer
+    required:
+    - cost
+    - income
+    - name
+    - quality
+    - square
+    - uid
+    type: object
   main.Credit:
     properties:
       amount:
@@ -51,6 +91,14 @@ definitions:
     required:
     - login
     - password
+    type: object
+  main.UpdateCreditStatusRequest:
+    properties:
+      status:
+        example: approved
+        type: string
+    required:
+    - status
     type: object
   main.User:
     properties:
@@ -104,6 +152,80 @@ paths:
       summary: Get credit applications
       tags:
       - Credit
+    post:
+      consumes:
+      - application/json
+      description: Allows a user to apply for a credit linked to one of their farms.
+        Status is set to 'wait'.
+      parameters:
+      - description: Credit application details
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/main.CreateCreditRequest'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/main.Credit'
+        "400":
+          description: Invalid request data or farm not owned by user
+          schema:
+            $ref: '#/definitions/main.ErrorResponse'
+        "403":
+          description: Access Denied
+          schema:
+            $ref: '#/definitions/main.ErrorResponse'
+      security:
+      - ApiKeyAuth: []
+      summary: Create a new credit application
+      tags:
+      - Credit
+  /api/credits/{cid}:
+    patch:
+      consumes:
+      - application/json
+      description: Allows an administrator to approve or deny a credit application.
+        Requires Admin privileges.
+      parameters:
+      - description: Credit ID to update
+        in: path
+        name: cid
+        required: true
+        type: integer
+      - description: New status ('approved' or 'denied')
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/main.UpdateCreditStatusRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/main.Credit'
+        "400":
+          description: Invalid credit ID or status value
+          schema:
+            $ref: '#/definitions/main.ErrorResponse'
+        "403":
+          description: Access Denied (Not an Admin)
+          schema:
+            $ref: '#/definitions/main.ErrorResponse'
+        "404":
+          description: Credit not found
+          schema:
+            $ref: '#/definitions/main.ErrorResponse'
+      security:
+      - ApiKeyAuth: []
+      summary: Update credit application status
+      tags:
+      - Credit
   /api/farms:
     get:
       description: Returns a list of farms. If user_id is not provided, returns the
@@ -129,6 +251,38 @@ paths:
       security:
       - ApiKeyAuth: []
       summary: Get farm data
+      tags:
+      - Farms
+    post:
+      consumes:
+      - application/json
+      description: Creates a new farm and assigns it to the specified user (UID).
+        Requires Admin privileges.
+      parameters:
+      - description: Farm details and target User ID
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/main.CreateFarmRequest'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/main.Farm'
+        "400":
+          description: Invalid request data
+          schema:
+            $ref: '#/definitions/main.ErrorResponse'
+        "403":
+          description: Access Denied (Not an Admin)
+          schema:
+            $ref: '#/definitions/main.ErrorResponse'
+      security:
+      - ApiKeyAuth: []
+      summary: Create a new farm
       tags:
       - Farms
   /api/users:
